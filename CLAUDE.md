@@ -8,18 +8,19 @@ definition of done y sont définis ; ne pas les réinterpréter ici.
 
 ## État
 
-Jalon 0 (reconnaissance nRF Connect) validé — le protocole BR-E1 déclenche bien le R100.
+Jalon 0 (reconnaissance nRF Connect) **clos et validé** le 31 août 2026 : déclenchement,
+pose longue et persistance du bond vérifiés sur R100. Voir `doc/jalon-0-protocole.md`.
 Jalon courant : 1 (scan, connexion, bonding).
 
-Aucun SDK Android sur cette machine : le projet s'y édite, il se compile et se teste
-ailleurs. Ne pas tenter de lancer `./gradlew assembleDebug` ici, et ne pas installer de SDK.
+Le SDK Android est installé sur cette machine et le projet y compile. Les tests BLE
+exigent en revanche un appareil physique — l'émulateur n'a pas de radio.
 
 ## Stack
 
 - Kotlin, Jetpack Compose (Material 3), coroutines
 - `android.bluetooth` natif, **sans wrapper tiers** — choix délibéré (SPEC §8) : le débogage
   BLE exige de voir les échanges bruts. Ne pas introduire Nordic BLE library, RxAndroidBle, etc.
-- minSdk 26, targetSdk/compileSdk 36, Java 17, Gradle 8.14.3 / AGP 8.13.2
+- minSdk 26, targetSdk/compileSdk 36, Java 17, Gradle 8.14.5 / AGP 8.13.2
 - Le daemon Gradle tourne sur un JDK 21 (`gradle/gradle-daemon-jvm.properties`) ; un JDK 25
   n'est pas supporté par cette version d'AGP.
 - Versions centralisées dans `gradle/libs.versions.toml` (version catalog), jamais en dur
@@ -49,23 +50,48 @@ pas d'abstraction anticipée (SPEC §11, risque courbe d'apprentissage).
   ce qui a été vérifié sur le R100. Les jeux de commandes varient d'un modèle Canon à l'autre :
   une valeur non vérifiée sur R100 est signalée comme telle.
 - Les écritures GATT sont sérialisées : Android n'accepte qu'une opération GATT en vol.
-- F5 (pose longue) est conditionnelle — voir SPEC §6. Ne pas construire d'UI ou de réglage
-  qui la présuppose avant le jalon 5.
+- F5 (pose longue) est acquise mais fonctionne **en bascule**, pas en appui/relâchement
+  (SPEC §6) : l'état d'exposition vit dans le boîtier. Une commande perdue l'inverse pour
+  toute la suite — suivi d'état explicite exigé. Pas d'UI qui la présuppose avant le jalon 5.
 - La précision d'intervalle vise 200 ms (NF1) : planifier sur une horloge absolue
   (`SystemClock.elapsedRealtime` cumulé), jamais par `delay(intervalle)` en boucle, qui dérive.
 - Une séquence doit survivre à une coupure BLE (NF3) : une erreur de connexion suspend, elle
   n'annule pas.
 - Le français est la langue du projet : commentaires, messages de commit, UI.
 
-## Protocole — à consigner
+## Protocole — vérifié sur R100 le 31 août 2026
 
-Les valeurs relevées au jalon 0 avec nRF Connect (UUID du service, caractéristique
-d'écriture, octets envoyés, ordre des étapes d'appairage) doivent être reportées dans
-`ble/CanonProtocol.kt` dès sa création, avec la date du relevé.
+Relevés et journal des essais : `doc/jalon-0-protocole.md`. À reporter dans
+`ble/CanonProtocol.kt` dès sa création, avec la date et la source de chaque valeur.
+
+| Rôle | Valeur |
+|---|---|
+| Service | `00050000-0000-1000-0000-d8492fffa821` |
+| Identification | car. `00050002` ← `0x03` + nom en ASCII |
+| Contrôle | car. `00050003` |
+| Déclenchement | `0x8C` |
+| Nom annoncé | `EOSR100_001997` |
+
+Séquence d'appairage : connecter, obtenir le bond, écrire l'identification — le boîtier
+**coupe alors le lien**, il faut se reconnecter. Ce cycle n'est nécessaire qu'au premier
+appairage ; les sessions suivantes se contentent de connecter et d'écrire.
+
+`0x8C` signifie « le bouton a été pressé », pas « appui maintenu » : à vitesse fixe une
+écriture produit une photo complète, en BULB elle bascule ouverture / fermeture. Ne pas
+nommer les constantes `PRESS` / `RELEASE`. L'octet `0x0C` des dépôts de référence est
+sans effet sur R100 : inutile entre deux vues comme pour clore une pose longue.
 
 ## Commandes
 
+`JAVA_HOME` n'est pas défini dans le terminal — l'exporter vers un JDK 21 avant tout appel
+au wrapper (Android Studio, lui, fournit le sien) :
+
 ```
-./gradlew :app:assembleDebug     # sur la machine équipée du SDK
+export JAVA_HOME="$HOME/.jdks/ms-21.0.12.1"   # adapter au JDK 21 installé
+
+./gradlew :app:assembleDebug     # APK debug
+./gradlew :app:installDebug      # installe sur l'appareil connecté
 ./gradlew :app:testDebugUnitTest # tests JVM (IntervalEngine notamment)
 ```
+
+Un appareil physique est nécessaire pour tout test BLE : l'émulateur n'a pas de radio.

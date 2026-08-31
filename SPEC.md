@@ -43,7 +43,7 @@ mobiliser un ordinateur quand un simple intervallomètre suffit.
 ### 4.1 Inclus
 
 Appairage et connexion Bluetooth, déclenchement unique, séquences à intervalle
-configurable, pose longue par maintien, exécution en arrière-plan écran éteint,
+configurable, pose longue par bascule, exécution en arrière-plan écran éteint,
 interface minimale, persistance des réglages.
 
 ### 4.2 Exclu
@@ -61,7 +61,7 @@ support iOS, support d'autres modèles Canon, bracketing, bulb ramping.
 | Le boîtier n'expose qu'une fonction Bluetooth à la fois | Activer la télécommande exclut Camera Connect, donc le géotag |
 | Un seul appairage télécommande mémorisé | Associer un nouvel appareil impose d'effacer le précédent |
 | Le mode d'acquisition doit être sur télécommande | Sinon le boîtier ignore les trames malgré une liaison valide |
-| La pose longue dure tant que le déclencheur est maintenu | Le bulb impose deux commandes distinctes, appui puis relâchement |
+| La pose longue dure tant que le déclencheur est maintenu | Le bulb impose deux commandes identiques, en bascule : une ouvre, la suivante referme |
 | Pas de minuteur bulb intégré, contrairement au R10 | Impossible de déléguer la durée d'exposition au boîtier |
 | Bluetooth 4.2 | Débit et portée sans importance ici, une poignée d'octets par déclenchement |
 
@@ -99,13 +99,17 @@ d'écart à 200 ms près.
 
 ### F5 — Pose longue
 
-Durée d'exposition configurable, réalisée par envoi d'un appui maintenu puis d'un
-relâchement.
+Durée d'exposition configurable, obtenue par une commande de déclenchement qui ouvre
+l'obturateur et une seconde, identique, qui le referme.
 
-**Cette exigence est conditionnelle.** Elle dépend de la capacité du protocole
-télécommande du R100 à exposer ces deux états séparément, ce qui n'est pas établi.
-Si la validation échoue, F5 est retirée du périmètre et l'application se limite aux
-vitesses réglées sur le boîtier, soit 30 s maximum.
+**Exigence acquise.** Le jalon 0 a établi le mécanisme sur R100 : en mode BULB le
+déclenchement fonctionne en bascule, le même octet ouvrant puis refermant. Il n'existe
+pas de commande de relâchement distincte ; celle des implémentations de référence reste
+sans effet.
+
+L'état d'exposition vit donc dans le boîtier et non dans l'application. Une commande
+perdue inverse cet état pour tout le reste de la séquence, ce qui fait de F5 le point le
+plus exposé à NF3 : elle impose un suivi d'état explicite.
 
 *Recette* : boîtier en mode M, vitesse sur BULB, exposition demandée de 60 s ;
 le fichier produit affiche une durée d'exposition de 60 s ± 1 s.
@@ -182,32 +186,45 @@ Le dialogue de la BR-E1 est documenté par trois projets open source :
 `maxmacstn/ESP32-Canon-BLE-Remote`, `ArthurFDLR/BR-M5` et `gkoh/furble`. Le travail
 consiste pour l'essentiel à porter cette logique C++ vers Kotlin.
 
-**Inconnue majeure** : ces implémentations ont été validées sur EOS M6, R et RP. Le
-jeu de commandes varie d'un modèle à l'autre et aucune n'a été confirmée sur R100.
-Le boîtier datant de 2023, la proximité avec les R10 et R50 est probable mais non
-garantie.
+L'inconnue majeure — ces implémentations ayant été validées sur EOS M6, R et RP, sans
+confirmation sur R100 — **est levée**. Le jalon 0 a vérifié sur le boîtier :
+
+| Rôle | Valeur |
+|---|---|
+| Service | `00050000-0000-1000-0000-d8492fffa821` |
+| Identification | caractéristique `00050002`, écriture de `0x03` suivi du nom en ASCII |
+| Contrôle | caractéristique `00050003` |
+| Déclenchement | `0x8C` |
+| Nom annoncé par le boîtier | `EOSR100_001997` |
+
+L'octet `0x0C` des implémentations de référence est accepté sans erreur et sans effet :
+il n'est nécessaire ni entre deux vues, ni pour clore une pose longue.
+
+Le détail des relevés est dans `doc/jalon-0-protocole.md`.
 
 ## 10. Jalons
 
 | # | Contenu | Critère de sortie |
 |---|---|---|
-| 0 | Reconnaissance avec nRF Connect, sans code : services listés, écriture manuelle de la commande | Une photo part |
+| 0 | Reconnaissance avec nRF Connect, sans code : services listés, écriture manuelle de la commande | Une photo part — **atteint le 31 août 2026** |
 | 1 | Scan, connexion, bonding | GATT connecté, bond persistant |
 | 2 | Déclenchement unique depuis l'application | F3 |
 | 3 | Boucle d'intervalle en avant-plan | F4 |
 | 4 | Service foreground | F6, NF2 |
-| 5 | Pose longue | F5 ou décision de retrait |
+| 5 | Pose longue | F5 |
 | 6 | Interface, persistance, notification, alerte | F7 à F11 |
 
 Le jalon 0 est bloquant et se traite entièrement à la main. Il lève ou confirme le
 risque principal du projet en une demi-heure, avant tout investissement en code.
+**Mené le 31 août 2026, il a levé ce risque** ; ses relevés et le journal des essais
+sont consignés dans `doc/jalon-0-protocole.md`.
 
 ## 11. Risques
 
 | Risque | Impact | Traitement |
 |---|---|---|
-| Protocole incompatible avec le R100 | Projet non viable en l'état | Jalon 0 avant toute écriture de code ; en cas d'échec, comparer les variantes de commandes des trois dépôts |
-| Bulb non pilotable à distance | F5 abandonnée, plafond à 30 s | Périmètre dégradé accepté, sans remise en cause du reste |
+| Protocole incompatible avec le R100 | Projet non viable en l'état | **Levé au jalon 0**, le 31 août 2026 : service, identification et déclenchement vérifiés sur R100 |
+| Bulb non pilotable à distance | F5 abandonnée, plafond à 30 s | **Levé au jalon 0** : la pose longue fonctionne, en bascule — voir F5 |
 | Doze interrompt les sessions longues | Timelapses tronqués | Service foreground, exclusion de l'optimisation batterie, validation par NF2 |
 | Courbe d'apprentissage Kotlin et Android | Dérive du calendrier | Jalons courts, code explicite, pas d'abstraction prématurée |
 
