@@ -10,7 +10,7 @@ definition of done y sont définis ; ne pas les réinterpréter ici.
 
 Jalon 0 (reconnaissance nRF Connect) **clos et validé** le 31 août 2026 : déclenchement,
 pose longue et persistance du bond vérifiés sur R100. Voir `doc/jalon-0-protocole.md`.
-Jalon courant : 1 (scan, connexion, bonding).
+Jalon courant : 1 (scan, connexion, bonding). Plan complet : `doc/plan-developpement.md`.
 
 Le SDK Android est installé sur cette machine et le projet y compile. Les tests BLE
 exigent en revanche un appareil physique — l'émulateur n'a pas de radio.

@@ -39,6 +39,8 @@ ligne.
 | 5 | Pose longue | à faire |
 | 6 | UI, persistance, notification, alerte | à faire |
 
+Plan de développement des jalons 1 à 6 : [`doc/plan-developpement.md`](doc/plan-developpement.md).
+
 ## Stack
 
 - Kotlin 2.2.20, Jetpack Compose (Material 3), coroutines
