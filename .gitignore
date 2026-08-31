@@ -8,3 +8,9 @@
 .externalNativeBuild
 .cxx
 local.properties
+
+# sorties de build des modules (app/build, etc.)
+build/
+
+# répertoire de travail du compilateur Kotlin
+.kotlin/
