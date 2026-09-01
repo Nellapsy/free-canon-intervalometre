@@ -44,8 +44,14 @@ sealed interface EtatLiaison {
     /** Liaison établie, appairée et identifiée : les commandes peuvent partir. */
     data object Prete : EtatLiaison
 
-    /** Liaison perdue, reprise en cours. */
-    data class Reconnexion(val tentative: Int, val total: Int) : EtatLiaison
+    /**
+     * Liaison perdue, reprise en cours.
+     *
+     * @param total plafond de tentatives, ou `null` quand il n'y en a pas — c'est le cas
+     *   pendant une séquence, où NF3 interdit d'abandonner. Afficher un total serait alors
+     *   promettre un arrêt qui ne viendra pas.
+     */
+    data class Reconnexion(val tentative: Int, val total: Int?) : EtatLiaison
 
     /** Échec définitif de ce cycle de liaison. [codeGatt] est renseigné s'il vient de la pile BLE. */
     data class Erreur(val message: String, val codeGatt: Int? = null) : EtatLiaison

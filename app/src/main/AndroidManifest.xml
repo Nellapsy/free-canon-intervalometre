@@ -17,6 +17,13 @@
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"
         android:maxSdkVersion="30" />
 
+    <!--
+        WAKE_LOCK : un service foreground empêche d'être tué, pas le CPU de s'endormir.
+        Écran éteint, un `delay()` ne part qu'au réveil suivant du processeur. Permission
+        normale, aucune demande à l'exécution. Voir ShutterService.veille.
+    -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
@@ -46,6 +53,15 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!--
+            Type connectedDevice : la séquence n'existe que pour parler au boîtier en BLE.
+            exported=false — rien d'extérieur n'a à démarrer une séquence.
+        -->
+        <service
+            android:name=".service.ShutterService"
+            android:exported="false"
+            android:foregroundServiceType="connectedDevice" />
 
     </application>
 </manifest>

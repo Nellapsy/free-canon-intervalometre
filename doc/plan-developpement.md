@@ -211,6 +211,18 @@ sans trou. Puis 4 heures pour NF2, sans fuite mémoire.
 Ce jalon est le premier qui demande de la patience : ses critères se mesurent en heures,
 pas en secondes.
 
+**Code écrit le 1er septembre 2026, validation sur appareil en attente.** Les deux recettes
+(2 h pour F6, 4 h pour NF2) restent à exécuter ; elles sont le critère de sortie entier.
+Détail et relevés à remplir : `doc/jalon-4-service.md`.
+
+Le jalon a soldé les deux dettes qui lui étaient reportées : la reprise de liaison perd son
+plafond pendant une séquence (NF3, jalon 3), et le repli automatique sur le scan est retiré
+au profit d'un « oublier ce boîtier » explicite (jalon 1). La notification prend F7 et F10
+tout de suite, ce qui allège d'autant le jalon 6.
+
+Décision Doze : **suspendue à la mesure**, comme prévu. Rien n'a été écrit côté
+`AlarmManager` par précaution.
+
 ---
 
 ## Jalon 5 — Pose longue
@@ -261,11 +273,14 @@ alerte sonore.
 **Contenu**
 
 - **F7** — notification persistante : état de connexion, vues prises, vues restantes,
-  heure de fin estimée.
+  heure de fin estimée. **Écrite au jalon 4** ; ne reste ici qu'à confirmer après les
+  mesures longue durée.
 - **F8** — signal sonore si la reconnexion échoue au-delà d'un seuil. Son objet est
-  d'éviter de découvrir au matin qu'une séquence s'est arrêtée à la troisième vue.
+  d'éviter de découvrir au matin qu'une séquence s'est arrêtée à la troisième vue. C'est le
+  seul point de F7-F10 que le jalon 4 n'a pas pris.
 - **F9** — rechargement des derniers réglages au lancement.
-- **F10** — arrêt manuel depuis l'application **et** depuis la notification.
+- **F10** — arrêt manuel depuis l'application **et** depuis la notification. **Écrit au
+  jalon 4.**
 - **F11** — écran d'aide rappelant les trois réglages boîtier.
 
 **Sur F11, contenu déjà acquis** : le jalon 0 a produit son texte. Liaison valide +

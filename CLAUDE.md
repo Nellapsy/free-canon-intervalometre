@@ -23,7 +23,11 @@ Jalon 3 (boucle d'intervalle) **clos et validé** le 1er septembre 2026 : 10 vue
 10 fichiers, grille tenue après coupure volontaire, arrêt manuel et mode illimité vérifiés
 (F4). Voir `doc/jalon-3-intervalle.md`.
 
-Jalon courant : 4 (service foreground). Plan complet : `doc/plan-developpement.md`.
+Jalon 4 (service foreground) : **code écrit, validation sur appareil en attente**. Ses
+critères se mesurent en heures — 2 h pour F6, 4 h pour NF2 — et n'ont pas encore été
+exécutés. Recettes et relevés à remplir : `doc/jalon-4-service.md` §7.
+
+Jalon courant : 4, en attente de mesure. Plan complet : `doc/plan-developpement.md`.
 
 Le SDK Android est installé sur cette machine et le projet y compile. Les tests BLE
 exigent en revanche un appareil physique — l'émulateur n'a pas de radio.
@@ -54,6 +58,7 @@ app/src/main/kotlin/fr/nellapsy/canonintervallometre/
   interval/EtatSequence.kt    avancement exposé à l'interface
   interval/IntervalEngine.kt  ordonnancement de la séquence
   service/ShutterService.kt   service foreground hébergeant la boucle
+  service/ContenuNotification.kt  contenu de la notification (pur, testé)
   ui/SaisieSequence.kt   validation des réglages (pure, testée)
   ui/EcranPrincipal.kt   écran Compose unique
   ui/MainActivity.kt     cycle de vie et thème, rien d'autre
@@ -154,6 +159,35 @@ Décisions du jalon 3, à ne pas réinterpréter :
 - **Intervalle minimum 2 s**, imposé par le délai de garde. Refus explicite dans
   `ui/SaisieSequence.kt` : aucune correction silencieuse d'une saisie hors limites.
 
+Décisions du jalon 4, à ne pas réinterpréter :
+
+- **Le service n'est propriétaire de rien.** `BleRemote` et `IntervalEngine` restent dans
+  `IntervallometreApp` — la liaison sert au bouton manuel hors séquence, et l'écran observe
+  `moteur.etat`. `ShutterService` n'héberge que le job de la séquence.
+- **`START_NOT_STICKY`.** Une séquence relancée seule après un arrêt système aurait perdu
+  l'origine de sa grille et produirait une seconde grille décalée. Elle s'arrête franchement.
+- **`startForeground` en première ligne d'`onStartCommand`**, avant de lire les réglages :
+  au-delà de 5 s sans notification, le système tue le service.
+- **Reprise sans plafond pendant une séquence** (NF3), plafond de 3 hors séquence.
+  `BleRemote.signalerSequence()` est ce qui bascule. Temporisation doublée, bornée à 32 s —
+  sans borne, le doublement dépasserait la durée de la séquence.
+- **Aucun repli automatique sur le scan.** Un boîtier endormi n'émet pas d'advertising : le
+  scan ne peut pas aboutir là où une reconnexion sur l'adresse connue finirait par réussir.
+  Le scan n'a lieu que sur `oublierBoitier()`, déclenché par l'utilisateur.
+- **Pas d'heure de fin annoncée quand elle n'est pas connaissable** (illimité, créneau
+  manqué, liaison coupée) : « N vues » compte les vues réussies, la durée n'est alors plus
+  calculable. Voir `service/ContenuNotification.kt`.
+- **`POST_NOTIFICATIONS` refusée ne bloque pas la séquence** : le service tourne, seule la
+  notification reste invisible.
+- **`PARTIAL_WAKE_LOCK` tenu pendant toute la séquence**, pris dans `demarrer()`, relâché
+  dans `terminer()` et `onDestroy()`. Un service foreground empêche d'être tué, **pas** le
+  CPU de s'endormir : sans ce verrou, `delay()` ne part qu'au réveil suivant du processeur
+  et la grille saute des créneaux écran éteint. Sans délai d'expiration, volontairement —
+  une séquence illimitée n'a pas de durée connue, et un verrou qui lâche en pleine nuit
+  donne une panne intermittente, pire que son absence.
+- **`AlarmManager` n'est pas écrit**, conformément au plan : trancher sur mesure. Il ne
+  s'écrira que si des trous subsistent *malgré* le verrou de veille, aux recettes F6/NF2.
+
 ## Commandes
 
 `JAVA_HOME` n'est pas défini dans le terminal — l'exporter vers un JDK 21 avant tout appel
@@ -165,6 +199,7 @@ export JAVA_HOME="$HOME/.jdks/ms-21.0.12.1"   # adapter au JDK 21 installé
 ./gradlew :app:assembleDebug     # APK debug
 ./gradlew :app:installDebug      # installe sur l'appareil connecté
 ./gradlew :app:testDebugUnitTest # tests JVM (IntervalEngine notamment)
+./gradlew :app:lintDebug         # lint Android, vert depuis le jalon 4
 ```
 
 Un appareil physique est nécessaire pour tout test BLE : l'émulateur n'a pas de radio.

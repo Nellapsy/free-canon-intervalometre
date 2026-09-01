@@ -25,4 +25,14 @@ class AdresseBoitier(private val contexte: Context) {
     suspend fun memoriser(adresse: String) {
         contexte.stockageBoitier.edit { it[cle] = adresse }
     }
+
+    /**
+     * Efface l'adresse mémorisée : la connexion suivante repassera par un scan.
+     *
+     * Existe pour le boîtier remplacé ou réinitialisé. Depuis le jalon 4, plus rien ne
+     * revient au scan tout seul — voir `BleRemote.oublierBoitier`.
+     */
+    suspend fun oublier() {
+        contexte.stockageBoitier.edit { it.remove(cle) }
+    }
 }

@@ -17,6 +17,7 @@
     <string name="etat_identification">Identification auprès du boîtier…</string>
     <string name="etat_prete">Boîtier connecté, appairé et identifié.</string>
     <string name="etat_reconnexion">Liaison perdue. Nouvelle tentative %1$d sur %2$d…</string>
+    <string name="etat_reconnexion_sans_plafond">Liaison perdue. Nouvelle tentative %1$d — la séquence tient sa grille…</string>
     <string name="etat_erreur">Échec : %1$s</string>
     <string name="etat_erreur_code">Échec : %1$s (code %2$d)</string>
 
@@ -33,6 +34,19 @@
     <string name="sequence_suspendue">Vue %1$d — liaison perdue, la grille est maintenue</string>
     <string name="sequence_terminee">Séquence terminée : %1$d vues.</string>
     <string name="sequence_arretee">Séquence arrêtée : %1$d vues.</string>
+
+    <string name="bouton_oublier_boitier">Oublier ce boîtier et rechercher</string>
+    <string name="bouton_batterie">Autoriser le fonctionnement prolongé</string>
+    <string name="batterie_explication">Sans cette autorisation, Android peut suspendre une séquence de plusieurs heures.</string>
+
+    <string name="notification_canal_nom">Séquence en cours</string>
+    <string name="notification_canal_description">Avancement de la séquence et état de la liaison avec le boîtier.</string>
+    <string name="notification_demarrage">Démarrage de la séquence…</string>
+    <string name="notification_vue">Vue %1$d sur %2$d</string>
+    <string name="notification_vue_illimitee">Vue %1$d</string>
+    <string name="notification_fin_estimee">Fin vers %1$s</string>
+    <string name="notification_liaison_perdue">Liaison perdue — la grille est maintenue</string>
+    <string name="notification_liaison_ok">Boîtier connecté</string>
 
     <string name="declencheur_en_cours">Envoi de la commande…</string>
     <plurals name="declencheur_reussi">

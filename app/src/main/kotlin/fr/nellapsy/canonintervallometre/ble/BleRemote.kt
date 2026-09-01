@@ -45,6 +45,7 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.coroutines.resume
@@ -135,6 +136,25 @@ class BleRemote(
     private val verrouGatt = Mutex()
 
     /**
+     * Vrai tant qu'une séquence tourne. Posé par `ShutterService`, lu par [boucleDeLiaison].
+     *
+     * Il ne change qu'une chose, mais elle est décisive : la reprise de liaison perd son
+     * plafond (NF3). Hors séquence le plafond tient, et c'est voulu — une application
+     * ouverte devant un boîtier éteint doit finir par afficher un échec plutôt que de
+     * scanner la nuit entière. `AtomicBoolean` parce que l'écriture vient du service et la
+     * lecture de la boucle, sur deux threads.
+     */
+    private val sequenceActive = AtomicBoolean(false)
+
+    /**
+     * Signale au cycle de liaison qu'une séquence commence ou finit. Voir [sequenceActive].
+     */
+    fun signalerSequence(active: Boolean) {
+        sequenceActive.set(active)
+        Log.i(TAG, "liaison : séquence ${if (active) "démarrée" else "terminée"}")
+    }
+
+    /**
      * Écriture en attente d'acquittement. `AtomicReference` et non `@Volatile` : le rappel
      * d'écriture et celui de déconnexion peuvent courir en même temps, et la reprise ne
      * doit avoir lieu qu'une fois.
@@ -156,6 +176,26 @@ class BleRemote(
     fun connecter() {
         if (travail?.isActive == true) return
         travail = portee.launch { boucleDeLiaison() }
+    }
+
+    /**
+     * Oublie l'adresse mémorisée et relance un cycle, qui repassera donc par un scan.
+     *
+     * C'est la seule porte vers le scan une fois un boîtier connu, et elle est volontairement
+     * explicite : le repli automatique du jalon 1 a été retiré (voir [appareilCible]). Elle
+     * sert au boîtier remplacé ou réinitialisé, cas où l'adresse mémorisée ne désigne plus
+     * rien et où aucune reprise ne peut aboutir.
+     */
+    fun oublierBoitier() {
+        travail?.cancel()
+        travail = null
+        fermerGatt()
+        publier(EtatLiaison.Inactif)
+        travail = portee.launch {
+            adresseBoitier.oublier()
+            Log.i(TAG, "adresse : oubliée sur demande, retour au scan")
+            boucleDeLiaison()
+        }
     }
 
     /** Interrompt le cycle de liaison et ferme le GATT. */
@@ -281,6 +321,7 @@ class BleRemote(
      * [lienActif] est vidé d'abord : aucune commande ne doit plus partir sur ce lien, et
      * `getAndSet` rend l'appel idempotent si la coupure était déjà réelle.
      */
+    @SuppressLint("MissingPermission")
     private fun forcerReconnexion() {
         val lien = lienActif.getAndSet(null) ?: return
         Log.w(TAG, "déclencheur : relâchement échoué, reconnexion forcée pour réarmer le boîtier")
@@ -296,13 +337,20 @@ class BleRemote(
         while (currentCoroutineContext().isActive) {
             verifierPrerequis()?.let { manquant ->
                 publier(manquant)
-                return
+
+                // Pendant une séquence, un prérequis qui peut revenir de lui-même ne met
+                // pas fin au cycle : le Bluetooth coupé à 2 h du matin — mode avion effleuré,
+                // économiseur zélé — ne doit pas condamner la nuit entière (NF3). Les autres
+                // (pas de radio BLE, permissions refusées) exigent l'utilisateur, donc
+                // l'application au premier plan : boucler n'y changerait rien.
+                if (!sequenceActive.get() || !reversible(manquant)) return
+                tentatives++
+                delay(temporisation(tentatives))
+                continue
             }
 
             try {
-                val appareil = appareilCible(
-                    ignorerAdresseConnue = tentatives >= TENTATIVES_SUR_ADRESSE_CONNUE,
-                )
+                val appareil = appareilCible()
                 etablirLiaison(appareil)
                 adresseBoitier.memoriser(appareil.address)
                 Log.i(TAG, "adresse : mémorisée ${appareil.address}")
@@ -338,7 +386,12 @@ class BleRemote(
             } catch (echec: EchecLiaison) {
                 fermerGatt()
                 tentatives++
-                if (tentatives > TENTATIVES_MAX) {
+
+                // Pendant une séquence, la reprise n'a pas de plafond : c'est l'exigence
+                // NF3, une coupure suspend la séquence, elle ne l'annule pas. Hors séquence
+                // le plafond tient — devant un boîtier éteint, mieux vaut un échec affiché
+                // qu'une reprise perpétuelle qui vide la batterie sans rien dire.
+                if (!sequenceActive.get() && tentatives > TENTATIVES_MAX) {
                     publier(EtatLiaison.Erreur(echec.message.orEmpty(), echec.codeGatt))
                     return
                 }
@@ -346,12 +399,36 @@ class BleRemote(
 
             // Reprise. L'erreur 133 d'Android est courante et souvent transitoire ; le GATT
             // vient d'être fermé, ce qui est la condition pour qu'une reprise aboutisse.
-            // TODO(jalon 4) : NF3 exige une reprise sans plafond pendant une séquence. Le
-            //  plafond de ce jalon suffit tant que la liaison n'héberge pas de séquence.
-            publier(EtatLiaison.Reconnexion(tentatives, TENTATIVES_MAX))
-            delay(TEMPORISATION_BASE_MS shl (tentatives - 1))
+            publier(
+                EtatLiaison.Reconnexion(
+                    tentative = tentatives,
+                    // Pas de total à annoncer quand il n'y a pas de plafond : afficher
+                    // « 7 sur 3 » serait absurde, et « 7 sur ∞ » n'apprend rien.
+                    total = if (sequenceActive.get()) null else TENTATIVES_MAX,
+                ),
+            )
+            delay(temporisation(tentatives))
         }
     }
+
+    /**
+     * Temporisation avant la reprise : doublement à chaque échec, plafonné.
+     *
+     * Le plafond n'est pas cosmétique. Sans lui, une séquence de nuit qui multiplie les
+     * échecs finirait par attendre des heures entre deux tentatives — le décalage exponentiel
+     * dépasserait vite la durée de la séquence elle-même.
+     */
+    private fun temporisation(tentatives: Int): Long {
+        val decalage = (tentatives - 1).coerceIn(0, 16)
+        return (TEMPORISATION_BASE_MS shl decalage).coerceAtMost(TEMPORISATION_MAX_MS)
+    }
+
+    /**
+     * Vrai si ce prérequis manquant peut redevenir vrai sans que l'utilisateur ouvre
+     * l'application. Voir l'usage dans [boucleDeLiaison].
+     */
+    private fun reversible(manquant: EtatLiaison): Boolean =
+        manquant is EtatLiaison.BluetoothEteint || manquant is EtatLiaison.LocalisationDesactivee
 
     private fun verifierPrerequis(): EtatLiaison? = when {
         adaptateur == null -> EtatLiaison.BluetoothIndisponible
@@ -374,16 +451,24 @@ class BleRemote(
 
     // ------------------------------------------------------------ Choix de l'appareil
 
-    private suspend fun appareilCible(ignorerAdresseConnue: Boolean): BluetoothDevice {
+    /**
+     * L'adresse mémorisée si elle existe, un scan sinon.
+     *
+     * **Aucun repli automatique sur le scan.** Le jalon 1 en avait posé un après deux échecs
+     * sur l'adresse connue ; le jalon 4 l'a retiré, parce qu'il est contre-productif : un
+     * boîtier endormi ou hors de portée n'émet pas d'advertising, un scan ne peut donc pas
+     * aboutir là où une reconnexion sur l'adresse connue aurait fini par réussir. Le repli
+     * remplaçait une tentative qui pouvait marcher par une qui échouerait à coup sûr, et
+     * coûtait 20 s de délai de scan à chaque tour.
+     *
+     * Le scan reste accessible, mais sur demande explicite : voir [oublierBoitier].
+     */
+    private suspend fun appareilCible(): BluetoothDevice {
         val adaptateur = requireNotNull(adaptateur)
-        if (!ignorerAdresseConnue) {
-            val connue = adresseBoitier.lire()
-            Log.i(TAG, "adresse : relue $connue")
-            if (connue != null && BluetoothAdapter.checkBluetoothAddress(connue)) {
-                return adaptateur.getRemoteDevice(connue)
-            }
-        } else {
-            Log.i(TAG, "adresse : ignorée volontairement, retour au scan")
+        val connue = adresseBoitier.lire()
+        Log.i(TAG, "adresse : relue $connue")
+        if (connue != null && BluetoothAdapter.checkBluetoothAddress(connue)) {
+            return adaptateur.getRemoteDevice(connue)
         }
         return scanner()
     }
@@ -737,11 +822,13 @@ class BleRemote(
          */
         private const val DELAI_GARDE_MS = 1_000L
 
+        /** Plafond de reprise **hors séquence** seulement. Voir [sequenceActive]. */
         private const val TENTATIVES_MAX = 3
+
         private const val TEMPORISATION_BASE_MS = 1_000L
 
-        /** Au-delà, l'adresse mémorisée est ignorée et on repasse par un scan. */
-        private const val TENTATIVES_SUR_ADRESSE_CONNUE = 2
+        /** Plafond de la temporisation de reprise. Voir [temporisation]. */
+        private const val TEMPORISATION_MAX_MS = 32_000L
 
         /**
          * Une coupure survenant dans cette fenêtre après l'identification est celle du
