@@ -10,7 +10,12 @@ definition of done y sont définis ; ne pas les réinterpréter ici.
 
 Jalon 0 (reconnaissance nRF Connect) **clos et validé** le 31 août 2026 : déclenchement,
 pose longue et persistance du bond vérifiés sur R100. Voir `doc/jalon-0-protocole.md`.
-Jalon courant : 1 (scan, connexion, bonding). Plan complet : `doc/plan-developpement.md`.
+
+Jalon 1 (scan, connexion, bonding) **clos et validé** le 1er septembre 2026 sur
+SM-G973U1 / Android 12 : relance à froid → « Prête » en 1,2 s, sans scan et sans repasser
+par le mode appairage du boîtier (F1). Voir `doc/jalon-1-liaison.md`.
+
+Jalon courant : 2 (déclenchement unique). Plan complet : `doc/plan-developpement.md`.
 
 Le SDK Android est installé sur cette machine et le projet y compile. Les tests BLE
 exigent en revanche un appareil physique — l'émulateur n'a pas de radio.
@@ -30,8 +35,11 @@ exigent en revanche un appareil physique — l'émulateur n'a pas de radio.
 
 ```
 app/src/main/kotlin/fr/nellapsy/canonintervallometre/
+  IntervallometreApp.kt  Application : détient l'unique BleRemote et sa portée
   ble/CanonProtocol.kt   UUID et octets de commande, regroupés et sourcés
+  ble/EtatLiaison.kt     état de la liaison exposé à l'interface
   ble/BleRemote.kt       scan, connexion, bonding, écriture sérialisée
+  ble/AdresseBoitier.kt  adresse du boîtier appairé (DataStore)
   interval/IntervalEngine.kt  ordonnancement de la séquence
   service/ShutterService.kt   service foreground hébergeant la boucle
   ui/                    écran Compose unique
@@ -73,8 +81,24 @@ Relevés et journal des essais : `doc/jalon-0-protocole.md`. À reporter dans
 | Nom annoncé | `EOSR100_001997` |
 
 Séquence d'appairage : connecter, obtenir le bond, écrire l'identification — le boîtier
-**coupe alors le lien**, il faut se reconnecter. Ce cycle n'est nécessaire qu'au premier
-appairage ; les sessions suivantes se contentent de connecter et d'écrire.
+**coupe alors le lien**, il faut se reconnecter. Cette coupure n'a lieu qu'au premier
+enregistrement ; `BleRemote` la reconnaît à sa fenêtre (moins de 5 s après identification)
+et reconnecte sans la traiter comme une erreur.
+
+Décisions du jalon 1, à ne pas réinterpréter :
+
+- **Bond explicite** (`createBond()` + attente de `ACTION_BOND_STATE_CHANGED`), et non
+  laissé au système : « bond persistant » est le critère de sortie, il doit être observable.
+- **Identification réécrite à chaque connexion**, comme `furble`. Vérifié inoffensif au
+  jalon 0. Évite de persister un état « déjà identifié » qui mentirait après une
+  réinitialisation du boîtier.
+- Le receiver `ACTION_BOND_STATE_CHANGED` s'enregistre en **`RECEIVER_EXPORTED`**. Avec
+  `RECEIVER_NOT_EXPORTED` la diffusion n'est jamais livrée (vérifié sur SM-G973U1 /
+  Android 12 le 1er septembre 2026) : le bond aboutit, l'application l'ignore et bloque
+  30 s sur « appairage en cours ». Diffusion protégée, donc non usurpable — ne pas
+  « resserrer » ce flag.
+- L'aboutissement du bond se lit **aussi** dans `bondState`, scruté en parallèle de la
+  diffusion. `bondState` est la source de vérité ; la diffusion n'est qu'une notification.
 
 `0x8C` signifie « le bouton a été pressé », pas « appui maintenu » : à vitesse fixe une
 écriture produit une photo complète, en BULB elle bascule ouverture / fermeture. Ne pas

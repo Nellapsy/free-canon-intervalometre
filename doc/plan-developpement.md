@@ -86,9 +86,14 @@ l'application sans repasser par le mode appairage du boîtier (F1).
 - L'erreur 133 d'Android sur connexion est courante et souvent transitoire : prévoir une
   reprise, ne pas la traiter comme fatale.
 
-**Décision à trancher** : le bond est-il obtenu explicitement, ou laissé au système lors
-de la première écriture chiffrée ? Le comportement observé au jalon 0 suggère la seconde
-voie ; à vérifier sur appareil avant de figer.
+**Décision tranchée** (1er septembre 2026) : bond **explicite**, `createBond()` suivi
+d'une attente à deux sources — la diffusion `ACTION_BOND_STATE_CHANGED` et le scrutin de
+`bondState`, qui est la seule source de vérité. La diffusion n'est pas fiable, y compris
+en `RECEIVER_EXPORTED`. Détail et traces : `doc/jalon-1-liaison.md`.
+
+**Jalon clos et validé le 1er septembre 2026.** Reste ouvert, reporté au jalon 4 : le
+repli sur le scan après échecs sur l'adresse connue est contre-productif — un boîtier
+endormi n'émet pas d'advertising, le scan ne peut pas aboutir.
 
 ---
 
