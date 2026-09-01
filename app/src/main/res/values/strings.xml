@@ -1,4 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Intervallomètre</string>
+
+    <string name="bouton_rechercher">Rechercher le boîtier</string>
+    <string name="rappel_mode_appairage">Pour la première connexion, le boîtier doit être en mode appairage.</string>
+
+    <string name="etat_bluetooth_indisponible">Cet appareil n\'a pas de Bluetooth Low Energy.</string>
+    <string name="etat_permissions_manquantes">Permissions Bluetooth refusées : rien ne peut être recherché.</string>
+    <string name="etat_bluetooth_eteint">Bluetooth éteint. Activez-le, puis relancez la recherche.</string>
+    <string name="etat_localisation_desactivee">Activez la localisation : avant Android 12, elle est exigée pour scanner en Bluetooth.</string>
+    <string name="etat_inactif">Aucun boîtier connecté.</string>
+    <string name="etat_recherche">Recherche du boîtier…</string>
+    <string name="etat_connexion">Connexion et découverte des services…</string>
+    <string name="etat_appairage">Appairage en cours. Acceptez la demande d\'Android si elle apparaît.</string>
+    <string name="etat_identification">Identification auprès du boîtier…</string>
+    <string name="etat_prete">Boîtier connecté, appairé et identifié.</string>
+    <string name="etat_reconnexion">Liaison perdue. Nouvelle tentative %1$d sur %2$d…</string>
+    <string name="etat_erreur">Échec : %1$s</string>
+    <string name="etat_erreur_code">Échec : %1$s (code %2$d)</string>
 </resources>
