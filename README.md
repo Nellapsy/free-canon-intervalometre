@@ -32,9 +32,9 @@ ligne.
 | Jalon | Contenu | État |
 |---|---|---|
 | 0 | Reconnaissance nRF Connect | **validé** — déclenchement, pose longue et bond vérifiés sur R100 |
-| 1 | Scan, connexion, bonding | en cours |
-| 2 | Déclenchement unique | à faire |
-| 3 | Boucle d'intervalle | à faire |
+| 1 | Scan, connexion, bonding | **validé** — reconnexion à froid en 1,2 s, sans mode appairage (F1) |
+| 2 | Déclenchement unique | **validé** — seize pressions, seize fichiers (F3) |
+| 3 | Boucle d'intervalle | en cours |
 | 4 | Service foreground | à faire |
 | 5 | Pose longue | à faire |
 | 6 | UI, persistance, notification, alerte | à faire |
@@ -159,21 +159,28 @@ Le dialogue de la BR-E1 est documenté par trois projets open source :
 [`gkoh/furble`](https://github.com/gkoh/furble).
 
 Ces implémentations ont été validées sur EOS M6, R et RP ; le jeu de commandes varie d'un
-modèle Canon à l'autre. **Le jalon 0 les a confirmées sur R100** le 31 août 2026 :
+modèle Canon à l'autre. **Les jalons 0 et 2 les ont vérifiées sur R100** les 31 août et
+1er septembre 2026 :
 
 | Rôle | Valeur |
 |---|---|
 | Service | `00050000-0000-1000-0000-d8492fffa821` |
 | Identification | caractéristique `00050002` ← `0x03` + nom en ASCII |
 | Contrôle | caractéristique `00050003` |
-| Déclenchement | `0x8C` |
+| Déclenchement (appui) | `0x8C` |
+| Relâchement | `0x0C`, obligatoire après chaque appui |
 | Nom annoncé par le boîtier | `EOSR100_001997` |
 
-`0x8C` signifie « le bouton a été pressé » : à vitesse fixe une écriture produit une photo
-complète ; en pose longue elle bascule, une écriture ouvre l'obturateur, la suivante le
-referme. L'octet de relâchement `0x0C` des dépôts de référence est accepté sans erreur et
-sans effet sur R100.
+`0x8C` est un **appui maintenu** : le boîtier retient le bouton enfoncé jusqu'à recevoir
+`0x0C`. Sans ce relâchement, les appuis suivants sont acquittés au niveau ATT et ignorés —
+symptôme : une photo par connexion. **Une vue vaut donc deux écritures.** Une commande
+envoyée moins d'une seconde après une vue est également ignorée, sans que rien ne le
+signale ; l'application refuse de l'envoyer plutôt que de compter une vue qui n'existe pas.
 
-Relevés complets et journal des essais : [`doc/jalon-0-protocole.md`](doc/jalon-0-protocole.md).
+Le mécanisme de pose longue relevé au jalon 0 repose sur une prémisse invalidée depuis :
+il est à revérifier avant d'implémenter F5.
+
+Relevés et journal des essais : [`doc/jalon-0-protocole.md`](doc/jalon-0-protocole.md),
+corrigé par [`doc/jalon-2-declenchement.md`](doc/jalon-2-declenchement.md).
 Toute constante de protocole doit porter en commentaire sa source et l'état de sa
 vérification sur R100.

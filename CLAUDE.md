@@ -15,7 +15,11 @@ Jalon 1 (scan, connexion, bonding) **clos et validé** le 1er septembre 2026 sur
 SM-G973U1 / Android 12 : relance à froid → « Prête » en 1,2 s, sans scan et sans repasser
 par le mode appairage du boîtier (F1). Voir `doc/jalon-1-liaison.md`.
 
-Jalon courant : 2 (déclenchement unique). Plan complet : `doc/plan-developpement.md`.
+Jalon 2 (déclenchement unique) **clos et validé** le 1er septembre 2026 : seize vues
+consécutives, seize fichiers (F3). Il a corrigé une conclusion fausse du jalon 0 — voir
+`doc/jalon-2-declenchement.md`.
+
+Jalon courant : 3 (boucle d'intervalle). Plan complet : `doc/plan-developpement.md`.
 
 Le SDK Android est installé sur cette machine et le projet y compile. Les tests BLE
 exigent en revanche un appareil physique — l'émulateur n'a pas de radio.
@@ -38,6 +42,7 @@ app/src/main/kotlin/fr/nellapsy/canonintervallometre/
   IntervallometreApp.kt  Application : détient l'unique BleRemote et sa portée
   ble/CanonProtocol.kt   UUID et octets de commande, regroupés et sourcés
   ble/EtatLiaison.kt     état de la liaison exposé à l'interface
+  ble/EtatDeclencheur.kt issue du dernier déclenchement (vues, échec)
   ble/BleRemote.kt       scan, connexion, bonding, écriture sérialisée
   ble/AdresseBoitier.kt  adresse du boîtier appairé (DataStore)
   interval/IntervalEngine.kt  ordonnancement de la séquence
@@ -58,26 +63,30 @@ pas d'abstraction anticipée (SPEC §11, risque courbe d'apprentissage).
   ce qui a été vérifié sur le R100. Les jeux de commandes varient d'un modèle Canon à l'autre :
   une valeur non vérifiée sur R100 est signalée comme telle.
 - Les écritures GATT sont sérialisées : Android n'accepte qu'une opération GATT en vol.
-- F5 (pose longue) est acquise mais fonctionne **en bascule**, pas en appui/relâchement
-  (SPEC §6) : l'état d'exposition vit dans le boîtier. Une commande perdue l'inverse pour
-  toute la suite — suivi d'état explicite exigé. Pas d'UI qui la présuppose avant le jalon 5.
+- F5 (pose longue) : le mécanisme relevé au jalon 0 — bascule par `8C` répété, `0x0C`
+  inopérant — reposait sur une prémisse invalidée au jalon 2. **Il est à revérifier avant
+  d'écrire quoi que ce soit de F5.** Ce qui tient : l'état d'exposition vit dans le
+  boîtier, une commande perdue l'inverse pour toute la suite, suivi d'état explicite exigé.
+  Pas d'UI qui présuppose un mécanisme avant le jalon 5.
 - La précision d'intervalle vise 200 ms (NF1) : planifier sur une horloge absolue
   (`SystemClock.elapsedRealtime` cumulé), jamais par `delay(intervalle)` en boucle, qui dérive.
 - Une séquence doit survivre à une coupure BLE (NF3) : une erreur de connexion suspend, elle
   n'annule pas.
 - Le français est la langue du projet : commentaires, messages de commit, UI.
 
-## Protocole — vérifié sur R100 le 31 août 2026
+## Protocole — vérifié sur R100 les 31 août et 1er septembre 2026
 
-Relevés et journal des essais : `doc/jalon-0-protocole.md`. À reporter dans
-`ble/CanonProtocol.kt` dès sa création, avec la date et la source de chaque valeur.
+Relevés et journal des essais : `doc/jalon-0-protocole.md`, corrigé par
+`doc/jalon-2-declenchement.md`. Les constantes vivent dans `ble/CanonProtocol.kt`, chacune
+avec sa source et sa date.
 
 | Rôle | Valeur |
 |---|---|
 | Service | `00050000-0000-1000-0000-d8492fffa821` |
 | Identification | car. `00050002` ← `0x03` + nom en ASCII |
 | Contrôle | car. `00050003` |
-| Déclenchement | `0x8C` |
+| Déclenchement (appui) | `0x8C` |
+| Relâchement | `0x0C` — obligatoire après chaque appui |
 | Nom annoncé | `EOSR100_001997` |
 
 Séquence d'appairage : connecter, obtenir le bond, écrire l'identification — le boîtier
@@ -100,10 +109,22 @@ Décisions du jalon 1, à ne pas réinterpréter :
 - L'aboutissement du bond se lit **aussi** dans `bondState`, scruté en parallèle de la
   diffusion. `bondState` est la source de vérité ; la diffusion n'est qu'une notification.
 
-`0x8C` signifie « le bouton a été pressé », pas « appui maintenu » : à vitesse fixe une
-écriture produit une photo complète, en BULB elle bascule ouverture / fermeture. Ne pas
-nommer les constantes `PRESS` / `RELEASE`. L'octet `0x0C` des dépôts de référence est
-sans effet sur R100 : inutile entre deux vues comme pour clore une pose longue.
+Décisions du jalon 2, à ne pas réinterpréter :
+
+- **Une vue = deux écritures**, `0x8C` puis `0x0C`, tenues sous un seul `verrouGatt`.
+  `0x8C` est un **appui maintenu** : le boîtier retient le bouton enfoncé et ignore tout
+  `0x8C` suivant — acquitté `GATT_SUCCESS`, sans photo — jusqu'à un `0x0C`. Symptôme si on
+  l'oublie : une photo par connexion. Vérifié sur R100 le 1er septembre 2026.
+- **Délai de garde de 1 s après chaque vue**, pendant lequel un appui n'envoie rien. Une
+  commande envoyée dans cette fenêtre est acquittée sans produire de photo, et rien dans le
+  dialogue BLE ne permet de le savoir : refuser d'envoyer est le seul moyen de garder le
+  compteur honnête. Mitigation mesurée, pas garantie.
+- **Le mécanisme de pose longue du jalon 0 est à revérifier**, pas à reprendre : il
+  concluait que `0x0C` ne referme pas l'obturateur et que `8C` répété le bascule, sur la
+  même prémisse fausse. Rien de F5 ne s'écrit avant un nouvel essai journalisé (jalon 5).
+- Piste jamais explorée, à tenter avant le jalon 5 : les caractéristiques `00050004`,
+  `00050006`, `00050007`, `0005000b` (INDICATE). Si l'une notifie l'état d'obturateur, le
+  compteur devient exact et F5 cesse de déduire au lieu de lire.
 
 ## Commandes
 

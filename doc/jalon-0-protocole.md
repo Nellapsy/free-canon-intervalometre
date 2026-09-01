@@ -3,6 +3,9 @@
 Statut : **clos et validé** le 31 août 2026. Déclenchement, pose longue et persistance du
 bond vérifiés sur R100. Le risque principal du projet (SPEC §11) est levé.
 
+> **Deux conclusions de ce document ont été corrigées depuis.** Le rôle de `0x0C` et, par
+> ricochet, le mécanisme de pose longue : voir §6, « Correction du 1er septembre 2026 ».
+
 ## 0. Journal des essais
 
 ### 31 août 2026 — identification : succès
@@ -144,6 +147,10 @@ le jalon 3.
 
 
 ### 31 août 2026 — `0C` inutile entre deux vues
+
+> **⚠ CONCLUSION FAUSSE, corrigée le 1er septembre 2026.** Voir §6 en fin de document.
+> Conservée telle quelle : la manière dont elle a été obtenue — sans journal — est la
+> leçon.
 
 À vitesse fixe, `8C` répété sans `0C` intercalé produit bien une photo par écriture.
 
@@ -295,3 +302,45 @@ encore sans repasser par le mode appairage, F1 est validée dans son principe.
 Essayer, dans l'ordre : `0x8C` seul sans relâchement ; `0x0C` seul ; l'autofocus `0x4C`
 puis `0x8C` ; enfin les autres caractéristiques en écriture (`00050005`, `0005000a`,
 `0005000c`) avec les mêmes octets. Consigner chaque essai et son résultat ici.
+
+---
+
+## 6. Correction du 1er septembre 2026 — `0C` est indispensable entre deux vues
+
+**La conclusion « `0C` inutile entre deux vues », en tête de ce document, est fausse.**
+
+Le jalon 2 a établi sur une connexion continue que `0x8C` **verrouille le bouton comme
+maintenu enfoncé**, et que `0x0C` seul le relâche :
+
+```
+15:24:59  8C sur 00050003 acquittée, code 0   → photo
+15:25:05  8C sur 00050003 acquittée, code 0   → rien
+15:25:10  0C sur 00050003 acquittée, code 0
+15:25:14  8C sur 00050003 acquittée, code 0   → photo
+15:25:19  8C sur 00050003 acquittée, code 0   → rien
+```
+
+Sans relâchement, les `0x8C` suivants ne sont pas de nouveaux appuis : le boîtier les
+acquitte au niveau ATT et les ignore. Le symptôme se lisait « une photo par connexion »,
+la reconnexion réinitialisant le verrou. **Une vue vaut deux écritures** ; `maxmacstn`
+avait raison d'envoyer la paire systématiquement.
+
+L'essai qui avait conclu l'inverse est le seul de ce document à n'être accompagné
+**d'aucun journal**. C'est la leçon à retenir autant que l'octet : une conclusion non
+journalisée n'est pas un relevé.
+
+### Ce que cela met en doute pour F5
+
+L'essai de pose longue du 31 août concluait que `0x0C` ne referme pas l'obturateur et que
+`8C` répété le bascule. Il reposait sur la même prémisse fausse et n'est **plus fiable** :
+à revérifier au jalon 5, avec journal cette fois, avant d'écrire quoi que ce soit de F5.
+
+### Tableau des constantes, corrigé
+
+| Élément | Valeur | Statut |
+|---|---|---|
+| Déclenchement (appui) | `0x8C` | vérifié — appui **maintenu**, verrouille le bouton |
+| Relâchement | `0x0C` | **vérifié le 1er sept. 2026** — réarme le bouton, obligatoire entre deux vues |
+| Pose longue en bascule | `8C` … `8C` | **à revérifier** — conclusion fondée sur une prémisse fausse |
+
+Détail complet : [`doc/jalon-2-declenchement.md`](jalon-2-declenchement.md).

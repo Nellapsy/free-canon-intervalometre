@@ -112,8 +112,18 @@ endormi n'émet pas d'advertising, le scan ne peut pas aboutir.
 laisser croire à un déclenchement quand rien n'est connecté. C'est le premier endroit où
 l'application ment facilement à son utilisateur.
 
-Ce jalon est court. Il ne vaut que par ce qu'il prouve : la chaîne complète
-interface → BLE → boîtier fonctionne depuis l'application, et plus depuis nRF Connect.
+**Jalon clos et validé le 1er septembre 2026** — seize pressions, seize fichiers.
+
+Il a démenti son propre énoncé : une vue vaut **deux** écritures, `0x8C` puis `0x0C`.
+`0x8C` est un appui maintenu ; sans relâchement le boîtier ignore les appuis suivants tout
+en les acquittant. La conclusion contraire du jalon 0 était fausse, faute de journal. Un
+délai de garde de 1 s après chaque vue empêche par ailleurs le compteur de diverger quand
+le boîtier laisse tomber une commande trop rapprochée. Détail :
+`doc/jalon-2-declenchement.md`.
+
+Deux points passent au jalon 5 : le mécanisme de pose longue, à revérifier parce qu'il
+reposait sur la même prémisse fausse, et les caractéristiques INDICATE jamais explorées,
+seule voie connue pour savoir ce que le boîtier a réellement fait.
 
 ---
 
@@ -195,8 +205,17 @@ initialement.
 **Fichiers** : `ble/BleRemote.kt` (état d'obturateur), `interval/IntervalEngine.kt`
 (durée d'exposition), `ui/`.
 
-**Contenu** : en mode BULB le déclenchement fonctionne en **bascule** — `0x8C` ouvre,
-`0x8C` referme. L'état d'exposition vit donc dans le boîtier, pas dans l'application.
+**Prérequis, ajouté le 1er septembre 2026 — à faire avant toute ligne de code.** Le jalon 2
+a invalidé la prémisse sur laquelle reposait le relevé de pose longue du jalon 0 : `0x0C`
+n'est pas inerte, c'est le relâchement d'un appui maintenu. Le mécanisme BULB est donc à
+revérifier sur le boîtier, avec journal cette fois. Profiter de la même séance pour ouvrir
+les caractéristiques INDICATE (`00050004`, `00050006`, `00050007`, `0005000b`) : si l'une
+notifie l'état d'obturateur, ce jalon cesse de déduire et se met à lire, ce qui change tout
+pour NF3.
+
+**Contenu, sous réserve de cette vérification** : le jalon 0 concluait qu'en BULB le
+déclenchement fonctionne en **bascule** — `0x8C` ouvre, `0x8C` referme — et que l'état
+d'exposition vit dans le boîtier, pas dans l'application.
 
 **Critère de sortie** : mode M, vitesse BULB, exposition demandée de 60 s, fichier produit
 à 60 s ± 1 s.
