@@ -27,9 +27,11 @@ import android.util.Log
 import androidx.core.content.ContextCompat
 import androidx.core.content.IntentCompat
 import androidx.core.location.LocationManagerCompat
+import fr.nellapsy.canonintervallometre.interval.Declencheur
 import kotlinx.coroutines.CancellableContinuation
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.async
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.currentCoroutineContext
@@ -70,7 +72,7 @@ class EchecLiaison(message: String, val codeGatt: Int? = null) : Exception(messa
 class BleRemote(
     contexte: Context,
     private val portee: CoroutineScope,
-) {
+) : Declencheur {
 
     private val contexte = contexte.applicationContext
     private val adresseBoitier = AdresseBoitier(this.contexte)
@@ -170,39 +172,58 @@ class BleRemote(
      * boîtier garde le bouton enfoncé et ignore la vue suivante (vérifié sur R100 le
      * 1er septembre 2026, voir [CanonProtocol.RELACHEMENT]).
      *
-     * Lancée sur [portee], et non sur la portée de l'appelant : une commande partie ne doit
-     * pas être annulée parce que l'écran se ferme. En BULB, une écriture interrompue à
-     * mi-course laisserait l'obturateur dans un état que rien ne permet de relire.
-     *
-     * Un appel pendant le délai de garde ([pretADeclencher] à `false`) est **ignoré sans
-     * rien envoyer** — voir [DELAI_GARDE_MS].
-     *
-     * L'issue se lit dans [etatDeclencheur] ; cette fonction ne lève rien.
+     * Feu et oubli : c'est la porte du bouton de l'écran, et l'issue se lit dans
+     * [etatDeclencheur]. Une séquence emploie [prendreVue], qui attend cette issue.
      */
     fun declencher() {
+        portee.launch { prendreVue() }
+    }
+
+    /**
+     * Prend une vue et attend son acquittement — c'est par là que passe `IntervalEngine`.
+     *
+     * Exécutée sur [portee] plutôt que sur la portée de l'appelant, puis attendue : si la
+     * séquence est annulée pendant une vue, l'attente est rompue mais la paire appui /
+     * relâchement va jusqu'à son terme. Une annulation entre les deux écritures laisserait
+     * le bouton enfoncé côté boîtier, défaut corrigé au jalon 2 qui ne doit pas revenir par
+     * la porte de l'arrêt manuel.
+     *
+     * Rend `false` sans rien envoyer si le délai de garde court encore ([pretADeclencher] à
+     * `false`) : le créneau est perdu plutôt que compté à tort. Voir [DELAI_GARDE_MS].
+     */
+    override suspend fun prendreVue(): Boolean = portee.async { vueAvecGarde() }.await()
+
+    private suspend fun vueAvecGarde(): Boolean {
         // `compareAndSet` et non une lecture suivie d'une écriture : deux appuis simultanés
-        // ne doivent pas passer tous les deux. La garde se prend avant de lancer quoi que
-        // ce soit, donc un appui ignoré ne coûte rien et ne compte rien.
+        // ne doivent pas passer tous les deux.
         if (!pretInterne.compareAndSet(expect = true, update = false)) {
             Log.i(TAG, "déclencheur : appui ignoré, délai de garde en cours")
-            return
+            return false
         }
-        portee.launch {
-            executerVue()
-            delay(DELAI_GARDE_MS)
+        return try {
+            val issue = executerVue()
+            // Le délai de garde ne protège que d'une commande trop rapprochée : il n'a rien
+            // à faire là où rien n'est parti. En séquence, l'appliquer quand même ferait
+            // perdre le créneau suivant à chaque tentative pendant une coupure.
+            if (issue != IssueVue.RIEN_ENVOYE) delay(DELAI_GARDE_MS)
+            issue == IssueVue.ACQUITTEE
+        } finally {
             pretInterne.value = true
         }
     }
 
-    private suspend fun executerVue() {
+    /** Ce qu'il est possible de savoir du sort d'une vue, vu de la pile BLE. */
+    private enum class IssueVue { ACQUITTEE, ECHOUEE, RIEN_ENVOYE }
+
+    private suspend fun executerVue(): IssueVue {
         val lien = lienActif.get()
         if (lien == null) {
             publierDeclencheur(EtatDeclencheur.Echec("Aucune liaison : rien n'a été envoyé."))
-            return
+            return IssueVue.RIEN_ENVOYE
         }
 
         publierDeclencheur(EtatDeclencheur.EnCours)
-        try {
+        return try {
             // Les deux écritures sont indissociables et tiennent sous un seul verrou :
             // rien ne doit s'intercaler entre l'appui et son relâchement.
             verrouGatt.withLock {
@@ -218,6 +239,7 @@ class BleRemote(
                         byteArrayOf(CanonProtocol.RELACHEMENT),
                     )
                     publierDeclencheur(EtatDeclencheur.Reussi(vues, instant))
+                    IssueVue.ACQUITTEE
                 } catch (echec: EchecLiaison) {
                     // Cas à ne pas travestir en simple succès : la vue est bien prise, mais
                     // le bouton reste enfoncé côté boîtier et la suivante sera ignorée en
@@ -225,19 +247,44 @@ class BleRemote(
                     // il ne doit pas pouvoir revenir sans se voir.
                     publierDeclencheur(
                         EtatDeclencheur.Echec(
-                            "Vue $vues prise, mais le relâchement a échoué : la suivante " +
-                                "sera ignorée jusqu'à une reconnexion.",
+                            "Vue $vues prise, mais le relâchement a échoué : reconnexion " +
+                                "pour réarmer le boîtier.",
                             echec.codeGatt,
                         ),
                     )
+                    // Rendue échouée bien que la photo existe : la séquence ne doit pas
+                    // compter une vue dont elle sait que la suivante est compromise.
+                    forcerReconnexion()
+                    IssueVue.ECHOUEE
                 }
             }
         } catch (echec: EchecLiaison) {
             // La boucle de liaison n'est pas interrompue : si la coupure est réelle, le
-            // rappel GATT la signale et la reprise est déjà son travail. Un échec
-            // d'écriture n'a pas à décider du sort de la liaison.
+            // rappel GATT la signale et la reprise est déjà son travail. Un échec de
+            // l'appui n'a pas à décider du sort de la liaison — contrairement à un échec
+            // du relâchement, qui laisse le boîtier dans un état dont il faut le sortir.
             publierDeclencheur(EtatDeclencheur.Echec(echec.message.orEmpty(), echec.codeGatt))
+            IssueVue.ECHOUEE
         }
+    }
+
+    /**
+     * Coupe le lien pour que [boucleDeLiaison] le rétablisse.
+     *
+     * Seul remède connu à un relâchement échoué : le boîtier garde alors le bouton enfoncé
+     * et acquitte `GATT_SUCCESS` toutes les vues suivantes **sans en produire aucune**.
+     * Rien dans le dialogue BLE ne permet de le détecter — une séquence de nuit continuerait
+     * à vide jusqu'au matin. Le jalon 2 a établi qu'une reconnexion réarme le déclencheur
+     * (vérifié sur R100 le 1er septembre 2026, voir `doc/jalon-2-declenchement.md`) ; on la
+     * provoque plutôt que de l'attendre.
+     *
+     * [lienActif] est vidé d'abord : aucune commande ne doit plus partir sur ce lien, et
+     * `getAndSet` rend l'appel idempotent si la coupure était déjà réelle.
+     */
+    private fun forcerReconnexion() {
+        val lien = lienActif.getAndSet(null) ?: return
+        Log.w(TAG, "déclencheur : relâchement échoué, reconnexion forcée pour réarmer le boîtier")
+        runCatching { lien.gatt.disconnect() }
     }
 
     // ------------------------------------------------------------- Boucle de liaison

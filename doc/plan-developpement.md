@@ -165,6 +165,22 @@ Ils s'exécutent sur l'horloge virtuelle de `kotlinx-coroutines-test` : une séq
 moteur. C'est ce qui rendrait le moteur intestable. L'interface de déclenchement se pose
 ici.
 
+**Jalon clos et validé le 1er septembre 2026** — 10 vues à 5 s, 10 fichiers ; arrêt manuel,
+coupure volontaire de deux créneaux et mode illimité vérifiés en plus du critère. Suite JVM :
+22 tests, dont 10 sur le moteur et 6 sur la saisie.
+
+Décision tranchée : « N vues » compte les vues **réussies**, pas les créneaux. Un créneau
+manqué se saute et la séquence se prolonge d'autant, sur la grille. Détail :
+`doc/jalon-3-intervalle.md`.
+
+Le jalon a aussi bouché un trou du jalon 2 : un relâchement échoué laisse le boîtier bouton
+enfoncé, et toute la suite serait acquittée sans photo. `BleRemote` force désormais une
+reconnexion dans ce cas — mitigation raisonnée, **non vérifiée sur boîtier**, la panne ne se
+provoquant pas à la demande.
+
+Reporté au jalon 4 : la reprise de liaison plafonne à trois tentatives, ce que NF3 interdit
+pendant une séquence (`TODO(jalon 4)` dans `BleRemote`).
+
 ---
 
 ## Jalon 4 — Service foreground

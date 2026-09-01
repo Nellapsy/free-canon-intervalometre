@@ -34,7 +34,7 @@ ligne.
 | 0 | Reconnaissance nRF Connect | **validé** — déclenchement, pose longue et bond vérifiés sur R100 |
 | 1 | Scan, connexion, bonding | **validé** — reconnexion à froid en 1,2 s, sans mode appairage (F1) |
 | 2 | Déclenchement unique | **validé** — seize pressions, seize fichiers (F3) |
-| 3 | Boucle d'intervalle | en cours |
+| 3 | Boucle d'intervalle | **validé** — 10 vues à 5 s, 10 fichiers ; grille tenue après coupure (F4) |
 | 4 | Service foreground | à faire |
 | 5 | Pose longue | à faire |
 | 6 | UI, persistance, notification, alerte | à faire |
@@ -56,6 +56,7 @@ Plan de développement des jalons 1 à 6 : [`doc/plan-developpement.md`](doc/pla
 app/src/main/kotlin/fr/nellapsy/canonintervallometre/
   ble/CanonProtocol.kt        UUID et octets de commande, regroupés et sourcés
   ble/BleRemote.kt            scan, connexion, bonding, écriture sérialisée
+  interval/Declencheur.kt     interface qui sépare le moteur de la radio
   interval/IntervalEngine.kt  ordonnancement de la séquence
   service/ShutterService.kt   service foreground hébergeant la boucle
   ui/                         écran Compose unique
@@ -181,6 +182,7 @@ Le mécanisme de pose longue relevé au jalon 0 repose sur une prémisse invalid
 il est à revérifier avant d'implémenter F5.
 
 Relevés et journal des essais : [`doc/jalon-0-protocole.md`](doc/jalon-0-protocole.md),
-corrigé par [`doc/jalon-2-declenchement.md`](doc/jalon-2-declenchement.md).
+corrigé par [`doc/jalon-2-declenchement.md`](doc/jalon-2-declenchement.md). Ordonnancement
+et décisions de la séquence : [`doc/jalon-3-intervalle.md`](doc/jalon-3-intervalle.md).
 Toute constante de protocole doit porter en commentaire sa source et l'état de sa
 vérification sur R100.

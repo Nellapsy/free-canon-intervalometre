@@ -20,6 +20,20 @@
     <string name="etat_erreur">Échec : %1$s</string>
     <string name="etat_erreur_code">Échec : %1$s (code %2$d)</string>
 
+    <string name="sequence_titre">Séquence</string>
+    <string name="sequence_champ_delai">Délai avant démarrage (s)</string>
+    <string name="sequence_champ_intervalle">Intervalle (s)</string>
+    <string name="sequence_champ_vues">Nombre de vues</string>
+    <string name="sequence_illimite">Illimité</string>
+    <string name="sequence_intervalle_minimum">Intervalle minimum : %1$d s.</string>
+    <string name="bouton_demarrer">Démarrer la séquence</string>
+    <string name="bouton_arreter">Arrêter la séquence</string>
+    <string name="sequence_attente">Vue %1$d sur %2$d — prochaine dans %3$d s</string>
+    <string name="sequence_attente_illimitee">Vue %1$d — prochaine dans %2$d s</string>
+    <string name="sequence_suspendue">Vue %1$d — liaison perdue, la grille est maintenue</string>
+    <string name="sequence_terminee">Séquence terminée : %1$d vues.</string>
+    <string name="sequence_arretee">Séquence arrêtée : %1$d vues.</string>
+
     <string name="declencheur_en_cours">Envoi de la commande…</string>
     <plurals name="declencheur_reussi">
         <item quantity="one">%1$d vue — %2$s</item>

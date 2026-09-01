@@ -19,7 +19,11 @@ Jalon 2 (déclenchement unique) **clos et validé** le 1er septembre 2026 : seiz
 consécutives, seize fichiers (F3). Il a corrigé une conclusion fausse du jalon 0 — voir
 `doc/jalon-2-declenchement.md`.
 
-Jalon courant : 3 (boucle d'intervalle). Plan complet : `doc/plan-developpement.md`.
+Jalon 3 (boucle d'intervalle) **clos et validé** le 1er septembre 2026 : 10 vues à 5 s →
+10 fichiers, grille tenue après coupure volontaire, arrêt manuel et mode illimité vérifiés
+(F4). Voir `doc/jalon-3-intervalle.md`.
+
+Jalon courant : 4 (service foreground). Plan complet : `doc/plan-developpement.md`.
 
 Le SDK Android est installé sur cette machine et le projet y compile. Les tests BLE
 exigent en revanche un appareil physique — l'émulateur n'a pas de radio.
@@ -39,15 +43,20 @@ exigent en revanche un appareil physique — l'émulateur n'a pas de radio.
 
 ```
 app/src/main/kotlin/fr/nellapsy/canonintervallometre/
-  IntervallometreApp.kt  Application : détient l'unique BleRemote et sa portée
+  IntervallometreApp.kt  Application : détient BleRemote, IntervalEngine et leur portée
   ble/CanonProtocol.kt   UUID et octets de commande, regroupés et sourcés
   ble/EtatLiaison.kt     état de la liaison exposé à l'interface
   ble/EtatDeclencheur.kt issue du dernier déclenchement (vues, échec)
   ble/BleRemote.kt       scan, connexion, bonding, écriture sérialisée
   ble/AdresseBoitier.kt  adresse du boîtier appairé (DataStore)
+  interval/Declencheur.kt     interface à une méthode, sépare le moteur de la radio
+  interval/ReglagesSequence.kt  délai, intervalle, nombre de vues (null = illimité)
+  interval/EtatSequence.kt    avancement exposé à l'interface
   interval/IntervalEngine.kt  ordonnancement de la séquence
   service/ShutterService.kt   service foreground hébergeant la boucle
-  ui/                    écran Compose unique
+  ui/SaisieSequence.kt   validation des réglages (pure, testée)
+  ui/EcranPrincipal.kt   écran Compose unique
+  ui/MainActivity.kt     cycle de vie et thème, rien d'autre
 ```
 
 Ce découpage vient de SPEC §8. Les paquets vides se remplissent au jalon correspondant ;
@@ -125,6 +134,25 @@ Décisions du jalon 2, à ne pas réinterpréter :
 - Piste jamais explorée, à tenter avant le jalon 5 : les caractéristiques `00050004`,
   `00050006`, `00050007`, `0005000b` (INDICATE). Si l'une notifie l'état d'obturateur, le
   compteur devient exact et F5 cesse de déduire au lieu de lire.
+
+Décisions du jalon 3, à ne pas réinterpréter :
+
+- **« N vues » = N vues réussies**, pas N créneaux. Un échec consomme son créneau sans
+  compter ; la séquence se prolonge jusqu'au compte, toujours sur la grille. Corollaire
+  assumé : la durée d'une séquence n'est pas prévisible si la liaison est mauvaise.
+- **Un créneau déjà passé se saute**, jamais ne se rattrape : une rafale produirait des vues
+  hors grille, et déclencher « dès que possible » ferait dériver toute la suite.
+- **`IntervalEngine` ne connaît que `Declencheur`**, jamais `BleRemote`. C'est ce qui le rend
+  testable en JVM, et c'est la seule abstraction anticipée autorisée. `executer()` est une
+  fonction suspendue : le job appartient à l'appelant (`IntervallometreApp` au jalon 3,
+  `ShutterService` au jalon 4).
+- **`prendreVue()` s'exécute sur la portée de la liaison, puis est attendue** : une séquence
+  annulée en pleine vue ne doit pas couper entre `0x8C` et `0x0C`.
+- **Un relâchement échoué force une reconnexion** (`forcerReconnexion`), seul remède connu au
+  boîtier resté bouton enfoncé. Raisonné à partir du jalon 2, **non vérifié sur boîtier** :
+  la panne ne se provoque pas à la demande.
+- **Intervalle minimum 2 s**, imposé par le délai de garde. Refus explicite dans
+  `ui/SaisieSequence.kt` : aucune correction silencieuse d'une saisie hors limites.
 
 ## Commandes
 
