@@ -18,6 +18,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -25,7 +26,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import fr.nellapsy.canonintervallometre.IntervallometreApp
 import fr.nellapsy.canonintervallometre.R
 import fr.nellapsy.canonintervallometre.ble.BleRemote
+import fr.nellapsy.canonintervallometre.ble.EtatDeclencheur
 import fr.nellapsy.canonintervallometre.ble.EtatLiaison
+import java.text.DateFormat
+import java.util.Date
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -44,6 +48,8 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun EcranPrincipal(liaison: BleRemote) {
     val etat by liaison.etat.collectAsStateWithLifecycle()
+    val declencheur by liaison.etatDeclencheur.collectAsStateWithLifecycle()
+    val pretADeclencher by liaison.pretADeclencher.collectAsStateWithLifecycle()
 
     val demandePermissions = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
@@ -83,6 +89,23 @@ fun EcranPrincipal(liaison: BleRemote) {
         ) {
             Text(stringResource(R.string.bouton_rechercher))
         }
+
+        Button(
+            // Actif seulement sur une liaison réellement utilisable, et jamais pendant la
+            // vue ni son délai de garde : le boîtier ignorerait la commande sans le dire,
+            // et le compteur afficherait une vue qui n'existe pas.
+            onClick = { liaison.declencher() },
+            enabled = etat is EtatLiaison.Prete && pretADeclencher,
+        ) {
+            Text(stringResource(R.string.bouton_declencher))
+        }
+        libelleDeclencheur(declencheur)?.let { libelle ->
+            Text(
+                text = libelle,
+                style = MaterialTheme.typography.bodyMedium,
+                textAlign = TextAlign.Center,
+            )
+        }
     }
 }
 
@@ -120,5 +143,29 @@ private fun libelleEtat(etat: EtatLiaison): String = when (etat) {
     is EtatLiaison.Erreur -> when (val code = etat.codeGatt) {
         null -> stringResource(R.string.etat_erreur, etat.message)
         else -> stringResource(R.string.etat_erreur_code, etat.message, code)
+    }
+}
+
+/**
+ * Libellé de la dernière commande, ou `null` tant qu'aucune n'a été demandée : au repos la
+ * ligne n'existe pas, plutôt que d'afficher un « 0 vue » qui ressemblerait à un échec.
+ *
+ * Le résultat reste affiché jusqu'à la commande suivante. Un message fugace serait un
+ * message manqué, et c'est précisément ce qu'il ne faut pas ici.
+ */
+@Composable
+private fun libelleDeclencheur(declencheur: EtatDeclencheur): String? = when (declencheur) {
+    EtatDeclencheur.Repos -> null
+    EtatDeclencheur.EnCours -> stringResource(R.string.declencheur_en_cours)
+    is EtatDeclencheur.Reussi -> pluralStringResource(
+        R.plurals.declencheur_reussi,
+        declencheur.vues,
+        declencheur.vues,
+        DateFormat.getTimeInstance(DateFormat.MEDIUM).format(Date(declencheur.instant)),
+    )
+
+    is EtatDeclencheur.Echec -> when (val code = declencheur.codeGatt) {
+        null -> stringResource(R.string.etat_erreur, declencheur.message)
+        else -> stringResource(R.string.etat_erreur_code, declencheur.message, code)
     }
 }

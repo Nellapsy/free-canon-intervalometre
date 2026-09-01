@@ -43,6 +43,7 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -90,8 +91,43 @@ class BleRemote(
         etatInterne.value = nouvel
     }
 
+    private val etatDeclencheurInterne =
+        MutableStateFlow<EtatDeclencheur>(EtatDeclencheur.Repos)
+
+    /** Issue du dernier déclenchement demandé. Voir [EtatDeclencheur]. */
+    val etatDeclencheur: StateFlow<EtatDeclencheur> = etatDeclencheurInterne.asStateFlow()
+
+    private fun publierDeclencheur(nouvel: EtatDeclencheur) {
+        Log.i(TAG, "déclencheur : ${etatDeclencheurInterne.value} → $nouvel")
+        etatDeclencheurInterne.value = nouvel
+    }
+
     private var travail: Job? = null
     private var gatt: BluetoothGatt? = null
+
+    /** Ce qu'il faut pour envoyer une commande : le lien GATT et la caractéristique de contrôle. */
+    private data class LienActif(
+        val gatt: BluetoothGatt,
+        val controle: BluetoothGattCharacteristic,
+    )
+
+    /**
+     * Lien utilisable, ou `null` tant qu'il n'y en a pas. `AtomicReference` parce que
+     * [declencher] est appelé depuis le thread de l'interface pendant que
+     * [boucleDeLiaison] tourne sur sa propre portée.
+     */
+    private val lienActif = AtomicReference<LienActif?>(null)
+
+    /** Vues prises depuis le lancement. */
+    private val vuesPrises = AtomicInteger(0)
+
+    private val pretInterne = MutableStateFlow(true)
+
+    /**
+     * Faux pendant une vue et pendant le délai de garde qui la suit. L'interface s'en sert
+     * pour éteindre son bouton ; [declencher] s'en sert pour refuser. Voir [DELAI_GARDE_MS].
+     */
+    val pretADeclencher: StateFlow<Boolean> = pretInterne.asStateFlow()
 
     /** Sérialise les opérations GATT. Le `Mutex` de kotlinx.coroutines sert les demandes en FIFO. */
     private val verrouGatt = Mutex()
@@ -126,6 +162,82 @@ class BleRemote(
         travail = null
         fermerGatt()
         publier(EtatLiaison.Inactif)
+    }
+
+    /**
+     * Demande une photo : [CanonProtocol.DECLENCHEMENT] puis [CanonProtocol.RELACHEMENT]
+     * sur la caractéristique de contrôle. **Deux écritures, pas une** — sans relâchement le
+     * boîtier garde le bouton enfoncé et ignore la vue suivante (vérifié sur R100 le
+     * 1er septembre 2026, voir [CanonProtocol.RELACHEMENT]).
+     *
+     * Lancée sur [portee], et non sur la portée de l'appelant : une commande partie ne doit
+     * pas être annulée parce que l'écran se ferme. En BULB, une écriture interrompue à
+     * mi-course laisserait l'obturateur dans un état que rien ne permet de relire.
+     *
+     * Un appel pendant le délai de garde ([pretADeclencher] à `false`) est **ignoré sans
+     * rien envoyer** — voir [DELAI_GARDE_MS].
+     *
+     * L'issue se lit dans [etatDeclencheur] ; cette fonction ne lève rien.
+     */
+    fun declencher() {
+        // `compareAndSet` et non une lecture suivie d'une écriture : deux appuis simultanés
+        // ne doivent pas passer tous les deux. La garde se prend avant de lancer quoi que
+        // ce soit, donc un appui ignoré ne coûte rien et ne compte rien.
+        if (!pretInterne.compareAndSet(expect = true, update = false)) {
+            Log.i(TAG, "déclencheur : appui ignoré, délai de garde en cours")
+            return
+        }
+        portee.launch {
+            executerVue()
+            delay(DELAI_GARDE_MS)
+            pretInterne.value = true
+        }
+    }
+
+    private suspend fun executerVue() {
+        val lien = lienActif.get()
+        if (lien == null) {
+            publierDeclencheur(EtatDeclencheur.Echec("Aucune liaison : rien n'a été envoyé."))
+            return
+        }
+
+        publierDeclencheur(EtatDeclencheur.EnCours)
+        try {
+            // Les deux écritures sont indissociables et tiennent sous un seul verrou :
+            // rien ne doit s'intercaler entre l'appui et son relâchement.
+            verrouGatt.withLock {
+                ecrireSousVerrou(lien.gatt, lien.controle, byteArrayOf(CanonProtocol.DECLENCHEMENT))
+                // La photo est partie ; la vue est acquise même si la suite échoue.
+                val vues = vuesPrises.incrementAndGet()
+                val instant = System.currentTimeMillis()
+
+                try {
+                    ecrireSousVerrou(
+                        lien.gatt,
+                        lien.controle,
+                        byteArrayOf(CanonProtocol.RELACHEMENT),
+                    )
+                    publierDeclencheur(EtatDeclencheur.Reussi(vues, instant))
+                } catch (echec: EchecLiaison) {
+                    // Cas à ne pas travestir en simple succès : la vue est bien prise, mais
+                    // le bouton reste enfoncé côté boîtier et la suivante sera ignorée en
+                    // silence. C'est exactement le défaut corrigé le 1er septembre 2026 ;
+                    // il ne doit pas pouvoir revenir sans se voir.
+                    publierDeclencheur(
+                        EtatDeclencheur.Echec(
+                            "Vue $vues prise, mais le relâchement a échoué : la suivante " +
+                                "sera ignorée jusqu'à une reconnexion.",
+                            echec.codeGatt,
+                        ),
+                    )
+                }
+            }
+        } catch (echec: EchecLiaison) {
+            // La boucle de liaison n'est pas interrompue : si la coupure est réelle, le
+            // rappel GATT la signale et la reprise est déjà son travail. Un échec
+            // d'écriture n'a pas à décider du sort de la liaison.
+            publierDeclencheur(EtatDeclencheur.Echec(echec.message.orEmpty(), echec.codeGatt))
+        }
     }
 
     // ------------------------------------------------------------- Boucle de liaison
@@ -292,7 +404,7 @@ class BleRemote(
             )
         val identification = service.getCharacteristic(CanonProtocol.CARACTERISTIQUE_IDENTIFICATION)
             ?: throw EchecLiaison("Caractéristique d'identification absente.")
-        service.getCharacteristic(CanonProtocol.CARACTERISTIQUE_CONTROLE)
+        val controle = service.getCharacteristic(CanonProtocol.CARACTERISTIQUE_CONTROLE)
             ?: throw EchecLiaison("Caractéristique de contrôle absente.")
 
         assurerBond(appareil)
@@ -303,6 +415,10 @@ class BleRemote(
             identification,
             CanonProtocol.trameIdentification(CanonProtocol.NOM_TELECOMMANDE),
         )
+
+        // À partir d'ici seulement le lien est utilisable pour déclencher. Le poser plus tôt
+        // ouvrirait une fenêtre où le bouton serait actif avant l'identification.
+        lienActif.set(LienActif(lien, controle))
     }
 
     /**
@@ -398,7 +514,20 @@ class BleRemote(
         lien: BluetoothGatt,
         caracteristique: BluetoothGattCharacteristic,
         valeur: ByteArray,
-    ) = verrouGatt.withLock {
+    ) = verrouGatt.withLock { ecrireSousVerrou(lien, caracteristique, valeur) }
+
+    /**
+     * Écriture proprement dite, [verrouGatt] déjà tenu. Existe pour qu'une suite
+     * d'écritures indissociables — la paire appui/relâchement d'une vue — puisse tenir
+     * sous un seul verrou. Le `Mutex` de kotlinx.coroutines n'est pas réentrant : appeler
+     * [ecrire] depuis une section déjà verrouillée bloquerait définitivement.
+     */
+    @SuppressLint("MissingPermission")
+    private suspend fun ecrireSousVerrou(
+        lien: BluetoothGatt,
+        caracteristique: BluetoothGattCharacteristic,
+        valeur: ByteArray,
+    ) {
         val code = withTimeoutOrNull(DELAI_ECRITURE_MS) {
             suspendCancellableCoroutine<Int> { continuation ->
                 ecritureEnAttente.set(continuation)
@@ -430,7 +559,11 @@ class BleRemote(
             throw EchecLiaison("Écriture sans acquittement dans le délai imparti.")
         }
 
-        Log.i(TAG, "écriture : acquittée, code $code")
+        Log.i(
+            TAG,
+            "écriture : ${valeur.joinToString(" ") { "%02X".format(it) }} sur " +
+                "${caracteristique.uuid.toString().take(8)} acquittée, code $code",
+        )
         if (code != BluetoothGatt.GATT_SUCCESS) {
             throw EchecLiaison("Écriture refusée par le boîtier.", code)
         }
@@ -510,6 +643,8 @@ class BleRemote(
      */
     @SuppressLint("MissingPermission")
     private fun fermerGatt() {
+        // Avant toute autre chose : plus aucune commande ne doit partir sur ce lien.
+        lienActif.set(null)
         gatt?.let {
             runCatching { it.disconnect() }
             runCatching { it.close() }
@@ -536,6 +671,24 @@ class BleRemote(
         /** Période de relecture de `bondState` pendant l'appairage. Voir [assurerBond]. */
         private const val INTERVALLE_SCRUTIN_BOND_MS = 500L
         private const val DELAI_ECRITURE_MS = 5_000L
+
+        /**
+         * Délai de garde après une vue, pendant lequel un nouvel appui est ignoré.
+         *
+         * Mesuré sur R100 le 1er septembre 2026 : une commande envoyée peu après une vue —
+         * typiquement pendant la revue d'image — est acquittée au niveau ATT et ne produit
+         * pas de photo. Rien dans le dialogue BLE ne permet de le savoir : refuser d'envoyer
+         * est le seul moyen pour que le compteur de vues ne mente pas. Au-delà de 500 ms à
+         * 1 s, plus aucune perte observée ; 1 s prend la marge.
+         *
+         * Ce n'est pas une garantie. Si la durée de revue du boîtier est réglée plus longue,
+         * la fenêtre dépasse ce délai et le décalage redevient possible. Le seul moyen de
+         * savoir ce que le boîtier a réellement fait serait de lire ses caractéristiques
+         * INDICATE (`00050004`, `00050006`, `00050007`, `0005000b`), jamais explorées.
+         *
+         * Sans effet sur le jalon 3 : une séquence travaille à la seconde ou plus.
+         */
+        private const val DELAI_GARDE_MS = 1_000L
 
         private const val TENTATIVES_MAX = 3
         private const val TEMPORISATION_BASE_MS = 1_000L

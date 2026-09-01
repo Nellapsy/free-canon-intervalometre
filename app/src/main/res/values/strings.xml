@@ -3,6 +3,7 @@
     <string name="app_name">Intervallomètre</string>
 
     <string name="bouton_rechercher">Rechercher le boîtier</string>
+    <string name="bouton_declencher">Déclencher</string>
     <string name="rappel_mode_appairage">Pour la première connexion, le boîtier doit être en mode appairage.</string>
 
     <string name="etat_bluetooth_indisponible">Cet appareil n\'a pas de Bluetooth Low Energy.</string>
@@ -18,4 +19,10 @@
     <string name="etat_reconnexion">Liaison perdue. Nouvelle tentative %1$d sur %2$d…</string>
     <string name="etat_erreur">Échec : %1$s</string>
     <string name="etat_erreur_code">Échec : %1$s (code %2$d)</string>
+
+    <string name="declencheur_en_cours">Envoi de la commande…</string>
+    <plurals name="declencheur_reussi">
+        <item quantity="one">%1$d vue — %2$s</item>
+        <item quantity="other">%1$d vues — %2$s</item>
+    </plurals>
 </resources>

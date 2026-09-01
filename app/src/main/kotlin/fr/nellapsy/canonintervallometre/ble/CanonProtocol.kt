@@ -49,18 +49,40 @@ object CanonProtocol {
     const val PREFIXE_IDENTIFICATION: Byte = 0x03
 
     /**
-     * « Le bouton du déclencheur a été pressé ». À écrire sur [CARACTERISTIQUE_CONTROLE].
+     * Appui sur le déclencheur. À écrire sur [CARACTERISTIQUE_CONTROLE], puis à relâcher
+     * par [RELACHEMENT].
      *
-     * Ce n'est **pas** un appui maintenu : le boîtier décide de la suite selon son mode.
-     * À vitesse fixe, une écriture produit une photo complète, exposition comprise. En
-     * BULB, une écriture ouvre l'obturateur et la suivante le referme — une bascule, dont
-     * l'état vit dans le boîtier. D'où l'absence de constantes nommées PRESS / RELEASE :
-     * elles décriraient un mécanisme qui n'existe pas sur ce boîtier.
+     * C'est un **appui maintenu** : le boîtier retient le bouton enfoncé jusqu'à recevoir
+     * [RELACHEMENT]. Un second [DECLENCHEMENT] sans relâchement intercalé n'est pas un
+     * nouvel appui — le boîtier l'acquitte au niveau ATT et l'ignore. Une vue se compose
+     * donc de **deux écritures**, jamais d'une seule.
      *
      * Calcul d'origine : SHUTTER (0x80) | CTRL (0x0C), chez furble comme chez maxmacstn.
-     * Vérifié sur R100 le 31 août 2026, à vitesse fixe et en BULB.
+     * Vérifié sur R100 le 31 août 2026 (une vue), puis le 1er septembre 2026 pour le
+     * comportement de verrou (voir [RELACHEMENT]).
      */
     const val DECLENCHEMENT: Byte = 0x8C.toByte()
+
+    /**
+     * Relâchement du déclencheur. À écrire sur [CARACTERISTIQUE_CONTROLE] après chaque
+     * [DECLENCHEMENT] : c'est lui qui réarme le bouton pour la vue suivante.
+     *
+     * **Vérifié sur R100 le 1er septembre 2026**, sur une connexion continue :
+     * `8C` → photo, `8C` → rien, `0C`, `8C` → photo, `8C` → rien. Toutes acquittées
+     * `GATT_SUCCESS` ; seul le relâchement explique la différence.
+     *
+     * Ce relevé **corrige** la conclusion du jalon 0, qui donnait `0x0C` pour inutile
+     * entre deux vues. L'essai qui l'avait établie n'a pas été journalisé et ne tient pas.
+     * `maxmacstn` envoie la paire systématiquement : c'était le bon comportement.
+     *
+     * Reste ouvert pour le jalon 5 : le jalon 0 avait conclu que `0x0C` ne referme pas une
+     * pose longue et que `8C` répété la bascule. Cette conclusion reposait sur la même
+     * prémisse fausse — elle est à revérifier avant d'écrire F5, pas à reprendre telle
+     * quelle.
+     *
+     * Calcul d'origine : CTRL (0x0C) seul, chez furble comme chez maxmacstn.
+     */
+    const val RELACHEMENT: Byte = 0x0C
 
     /**
      * Nom sous lequel l'application se présente au boîtier.
@@ -100,9 +122,4 @@ object CanonProtocol {
 
         return byteArrayOf(PREFIXE_IDENTIFICATION) + nom.toByteArray(Charsets.US_ASCII)
     }
-
-    // Pas de constante pour l'octet 0x0C (« CTRL » seul, le « relâchement » des dépôts de
-    // référence). Vérifié sans effet observable sur R100 le 31 août 2026 : il ne referme
-    // pas une pose longue et n'est pas nécessaire entre deux vues. L'inscrire ici
-    // inviterait à s'en servir. Une seule écriture GATT par vue suffit.
 }
